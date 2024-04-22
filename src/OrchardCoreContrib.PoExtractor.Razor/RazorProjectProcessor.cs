@@ -4,6 +4,8 @@ using OrchardCoreContrib.PoExtractor.DotNet;
 using OrchardCoreContrib.PoExtractor.DotNet.CS;
 using OrchardCoreContrib.PoExtractor.Razor.MetadataProviders;
 using System;
+using Microsoft.CodeAnalysis.VisualBasic;
+using Microsoft.Extensions.Localization;
 
 namespace OrchardCoreContrib.PoExtractor.Razor
 {
@@ -31,16 +33,6 @@ namespace OrchardCoreContrib.PoExtractor.Razor
             }
 
             var razorMetadataProvider = new RazorMetadataProvider(basePath);
-            var razorWalker = new ExtractingCodeWalker(new IStringExtractor<SyntaxNode>[]
-            {
-                new SingularStringExtractor(razorMetadataProvider),
-                new PluralStringExtractor(razorMetadataProvider),
-                new ErrorMessageAnnotationStringExtractor(razorMetadataProvider),
-                new DisplayAttributeDescriptionStringExtractor(razorMetadataProvider),
-                new DisplayAttributeNameStringExtractor(razorMetadataProvider),
-                new DisplayAttributeGroupNameStringExtractor(razorMetadataProvider),
-                new DisplayAttributeShortNameStringExtractor(razorMetadataProvider)
-            }, strings);
 
             var compiledViews = ViewCompiler.CompileViews(path);
 
@@ -49,6 +41,21 @@ namespace OrchardCoreContrib.PoExtractor.Razor
                 try
                 {
                     var syntaxTree = CSharpSyntaxTree.ParseText(view.GeneratedCode, path: view.FilePath);
+                    
+                    var compilation = CSharpCompilation.Create("arg")
+                        .AddReferences(MetadataReference.CreateFromFile(typeof(IStringLocalizer<>).Assembly.Location))
+                        .AddSyntaxTrees(syntaxTree);
+
+                    var model = compilation.GetSemanticModel(syntaxTree);
+                    
+                    var razorWalker = new ExtractingCodeWalker(
+                        new IStringExtractor<SyntaxNode>[]
+                        {
+                            new StringLocalizerOfTExtractor(
+                                razorMetadataProvider,
+                                model),
+                        }, 
+                        strings);
 
                     razorWalker.Visit(syntaxTree.GetRoot());
                 }

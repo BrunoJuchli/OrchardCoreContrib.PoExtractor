@@ -4,6 +4,7 @@ using OrchardCoreContrib.PoExtractor.DotNet.CS.MetadataProviders;
 using System;
 using System.IO;
 using System.Linq;
+using Microsoft.Extensions.Localization;
 
 namespace OrchardCoreContrib.PoExtractor.DotNet.CS;
 
@@ -30,16 +31,6 @@ public class CSharpProjectProcessor : IProjectProcessor
         ArgumentNullException.ThrowIfNull(localizableStrings);
 
         var csharpMetadataProvider = new CSharpMetadataProvider(basePath);
-        var csharpWalker = new ExtractingCodeWalker(
-        [
-            new SingularStringExtractor(csharpMetadataProvider),
-            new PluralStringExtractor(csharpMetadataProvider),
-            new ErrorMessageAnnotationStringExtractor(csharpMetadataProvider),
-            new DisplayAttributeDescriptionStringExtractor(csharpMetadataProvider),
-            new DisplayAttributeNameStringExtractor(csharpMetadataProvider),
-            new DisplayAttributeGroupNameStringExtractor(csharpMetadataProvider),
-            new DisplayAttributeShortNameStringExtractor(csharpMetadataProvider)
-        ], localizableStrings);
 
         foreach (var file in Directory.EnumerateFiles(path, $"*{_cSharpExtension}", SearchOption.AllDirectories).OrderBy(file => file))
         {
@@ -48,9 +39,35 @@ public class CSharpProjectProcessor : IProjectProcessor
                 continue;
             }
 
+            // var csharpWalker = new ExtractingCodeWalker(
+            // [
+            //     new SingularStringExtractor(csharpMetadataProvider),
+            //     new PluralStringExtractor(csharpMetadataProvider),
+            //     new ErrorMessageAnnotationStringExtractor(csharpMetadataProvider),
+            //     new DisplayAttributeDescriptionStringExtractor(csharpMetadataProvider),
+            //     new DisplayAttributeNameStringExtractor(csharpMetadataProvider),
+            //     new DisplayAttributeGroupNameStringExtractor(csharpMetadataProvider),
+            //     new DisplayAttributeShortNameStringExtractor(csharpMetadataProvider)
+            // ], localizableStrings);
+            
             using var stream = File.OpenRead(file);
             using var reader = new StreamReader(stream);
             var syntaxTree = CSharpSyntaxTree.ParseText(reader.ReadToEnd(), path: file);
+            
+            var compilation = CSharpCompilation.Create("arg")
+                .AddReferences(MetadataReference.CreateFromFile(typeof(IStringLocalizer<>).Assembly.Location))
+                .AddSyntaxTrees(syntaxTree);
+
+            var model = compilation.GetSemanticModel(syntaxTree);
+                    
+            var csharpWalker = new ExtractingCodeWalker(
+                new IStringExtractor<SyntaxNode>[]
+                {
+                    new StringLocalizerOfTExtractor(
+                        csharpMetadataProvider,
+                        model),
+                }, 
+                localizableStrings);
 
             csharpWalker.Visit(syntaxTree.GetRoot());
         }
